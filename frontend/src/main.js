@@ -10,6 +10,7 @@ import { metricList, buildSeries, sortRows } from "./data.js";
 import { demoDatasets } from "./demo.js";
 import { createChart } from "./chart.js";
 import { exportChart } from "./export.js";
+import { apiJSON, uploadCSV, storedCSV, createPersistence } from "./server.js";
 
 const $ = (selector) => document.querySelector(selector);
 document.querySelectorAll("[data-icon]").forEach((element) => {
@@ -20,6 +21,11 @@ document.querySelectorAll("[data-icon]").forEach((element) => {
 });
 
 const state = {
+  folders: [],
+  files: [],
+  activeFolderId: "",
+  mode: "files",
+  ready: false,
   datasets: [],
   selected: new Set(),
   seriesPrefs: {},
@@ -47,13 +53,76 @@ const state = {
     exportWidth: 2400,
   },
 };
-let fileSequence = 0;
 let toastTimer;
-const chart = createChart($("#chart"), (selected) => {
-  for (const series of state.series)
-    state.seriesPrefs[series.id].visible = selected[series.name] !== false;
-  refreshSeries();
+const chart = createChart(
+  $("#chart"),
+  (selected) => {
+    for (const series of state.series)
+      state.seriesPrefs[series.id].visible = selected[series.name] !== false;
+    refreshSeries();
+  },
+  () => persistence.schedule(),
+);
+const persistence = createPersistence(workspaceSnapshot, (status, message) => {
+  const button = $("#save-status");
+  button.dataset.status = status;
+  button.textContent = {
+    saving: "正在保存…",
+    saved: "已保存到服务器",
+    error: "保存失败 · 点击重试",
+  }[status];
+  button.disabled = status !== "error";
+  button.title = message || "CSV 和当前图表状态已保存到服务器";
 });
+
+function workspaceSnapshot() {
+  return {
+    schema: 1,
+    mode: state.mode,
+    activeFolderId: state.activeFolderId,
+    datasets: state.datasets.map(({ id, name, enabled, xColumn }) => ({
+      id,
+      name,
+      enabled,
+      xColumn,
+    })),
+    selected: [...state.selected],
+    seriesPrefs: state.seriesPrefs,
+    nextColor: state.nextColor,
+    settings: state.settings,
+    statsId: state.statsId,
+    tableId: state.tableId,
+    sortColumn: state.sortColumn,
+    sortDirection: state.sortDirection,
+    tableQuery: state.tableQuery,
+    precision: state.precision,
+    page: state.page,
+    openFiles: [...state.openFiles],
+    view: chart.getView(),
+    scrollY: window.scrollY,
+    tableScroll: $("#table-scroll").scrollLeft,
+  };
+}
+
+function updateUploadButtons() {
+  document.querySelectorAll(".upload-trigger").forEach((button) => {
+    button.disabled = !state.ready || state.busy || !state.activeFolderId;
+  });
+}
+
+function renderFolders() {
+  $("#folder-list").innerHTML = state.folders.length
+    ? state.folders
+        .map((folder) => {
+          const count = state.files.filter(
+            (file) => file.folderId === folder.id,
+          ).length;
+          return `<div class="folder-row ${folder.id === state.activeFolderId ? "active" : ""}"><button class="folder-select" type="button" data-folder="${esc(folder.id)}" aria-pressed="${folder.id === state.activeFolderId}">${icon("folder", 16)}<span>${esc(folder.name)}</span><small>${count}</small></button><button class="icon-button delete-folder" type="button" data-delete-folder="${esc(folder.id)}" aria-label="删除目录 ${esc(folder.name)}" title="删除目录">${icon("trash", 14)}</button></div>`;
+        })
+        .join("")
+    : '<p class="empty-help">暂无目录，点击 + 创建。</p>';
+  updateUploadButtons();
+}
 
 function toast(message) {
   clearTimeout(toastTimer);
@@ -74,27 +143,42 @@ function options(items, selected) {
 }
 
 function renderFiles() {
-  $("#file-count").textContent = String(state.datasets.length).padStart(2, "0");
-  $("#file-list").innerHTML = state.datasets
-    .map(
-      (dataset, index) => `
-    <div class="file-card ${dataset.enabled ? "" : "disabled-file"}" data-file="${esc(dataset.id)}">
+  const folder = state.folders.find((item) => item.id === state.activeFolderId);
+  const files = state.files.filter(
+    (file) => file.folderId === state.activeFolderId,
+  );
+  const demos = state.datasets.filter((dataset) => dataset.demo);
+  $("#file-count").textContent = String(files.length).padStart(2, "0");
+  $("#current-folder").textContent = folder
+    ? `${folder.name} · ${files.length} 个已保存文件`
+    : "请先创建目录";
+  const card = (metadata, index) => {
+    const dataset = state.datasets.find((item) => item.id === metadata.id);
+    const name = dataset?.name || baseName(metadata.filename);
+    return `<div class="file-card ${dataset?.enabled ? "" : "disabled-file"}" data-file="${esc(metadata.id)}">
       <div class="file-card-top">
-        <input type="checkbox" data-file-enabled="${esc(dataset.id)}" ${dataset.enabled ? "checked" : ""} aria-label="显示 ${esc(dataset.name)} 文件的曲线" />
-        <input class="model-name" data-file-name="${esc(dataset.id)}" aria-label="模型名称 ${esc(dataset.filename)}" value="${esc(dataset.name)}" maxlength="80" title="编辑模型名称" />
-        <button class="icon-button remove-file" data-remove-file="${esc(dataset.id)}" type="button" aria-label="移除 ${esc(dataset.filename)}">${icon("close", 14)}</button>
+        <input type="checkbox" data-file-enabled="${esc(metadata.id)}" ${dataset?.enabled ? "checked" : ""} aria-label="显示 ${esc(name)} 文件的曲线" />
+        <input class="model-name" data-file-name="${esc(metadata.id)}" aria-label="模型名称 ${esc(metadata.filename)}" value="${esc(name)}" maxlength="80" ${dataset ? "" : "disabled"} title="勾选文件后可编辑模型名称" />
+        <button class="icon-button remove-file" data-remove-file="${esc(metadata.id)}" type="button" aria-label="删除 ${esc(metadata.filename)}" title="${metadata.demo ? "移除示例" : "删除服务器上的 CSV"}">${icon(metadata.demo ? "close" : "trash", 14)}</button>
       </div>
-      <div class="file-meta"><span class="file-dot" style="background:${palette[index % palette.length]}"></span><span title="${esc(dataset.filename)}">${esc(dataset.filename)}</span><span>${dataset.rows.length} 行</span></div>
-      <details data-file-details="${esc(dataset.id)}" ${state.openFiles.has(dataset.id) ? "open" : ""}><summary>配置 X 轴</summary><label>X 轴<select data-x-column="${esc(dataset.id)}" aria-label="${esc(dataset.name)} 的 X 轴">${options([["__row", "数据行号（从 1 开始）"], ...dataset.columns.filter((column) => column.numericCount || column.id === dataset.xColumn).map((column) => [column.id, column.label])], dataset.xColumn)}</select></label></details>
-    </div>`,
-    )
-    .join("");
+      <div class="file-meta"><span class="file-dot" style="background:${palette[index % palette.length]}"></span><span title="${esc(metadata.filename)}">${esc(metadata.filename)}</span><span>${dataset?.rows.length ?? metadata.rowCount} 行</span></div>
+      ${dataset ? `<details data-file-details="${esc(dataset.id)}" ${state.openFiles.has(dataset.id) ? "open" : ""}><summary>配置 X 轴</summary><label>X 轴<select data-x-column="${esc(dataset.id)}" aria-label="${esc(name)} 的 X 轴">${options([["__row", "数据行号（从 1 开始）"], ...dataset.columns.filter((column) => column.numericCount || column.id === dataset.xColumn).map((column) => [column.id, column.label])], dataset.xColumn)}</select></label></details>` : ""}
+    </div>`;
+  };
+  $("#file-list").innerHTML =
+    (demos.length
+      ? `<p class="demo-file-note">模拟示例 · 未上传到目录</p>${demos.map(card).join("")}`
+      : "") +
+    files.map(card).join("") +
+    (!files.length
+      ? '<p class="empty-help">当前目录暂无 CSV，上传后会保存到服务器。</p>'
+      : "");
   $("#workspace-count").textContent =
-    `${state.datasets.length} 个实验 · ${state.datasets.reduce((sum, dataset) => sum + dataset.rows.length, 0).toLocaleString()} 行数据`;
-  const demo = state.datasets.some((dataset) => dataset.demo);
-  $("#demo-badge").hidden = !demo;
+    `${state.datasets.filter((dataset) => dataset.enabled).length} 个显示中的实验 · ${state.files.length} 个已保存文件`;
+  $("#demo-badge").hidden = !demos.length;
   $("#demo-badge").textContent = "模拟示例 · 非真实训练结果";
   $("#load-demo").hidden = state.datasets.length > 0;
+  persistence.schedule();
 }
 
 function renderMetrics() {
@@ -160,6 +244,7 @@ function renderStats() {
     <div class="stat-card"><div class="stat-label">最终有效值 <span>Last</span></div><strong title="${esc(last.rawY)}">${esc(displayNumber(last.rawY, 6))}</strong><div class="stat-detail">Epoch <b>${esc(last.rawX)}</b></div></div>
     <div class="stat-card count-stat"><div class="stat-label">有效数据点 <span>Points</span></div><strong>${count.toLocaleString()}<small> / ${selected.dataset.rows.length.toLocaleString()}</small></strong><div class="stat-detail">${missing ? `${missing} 处曲线断点` : "按 Epoch 升序绘制"}</div></div>
     </div>`;
+  persistence.schedule();
 }
 
 function renderNotices() {
@@ -222,6 +307,7 @@ function renderTable() {
   $("#page-info").textContent = `${state.page + 1} / ${pages}`;
   $("#page-prev").disabled = state.page === 0;
   $("#page-next").disabled = state.page >= pages - 1;
+  persistence.schedule();
 }
 
 function refreshSeries(resetZoom = false) {
@@ -235,9 +321,11 @@ function refreshSeries(resetZoom = false) {
   $("#curve-count").textContent = `${visible.length} 条`;
   $("#export-toggle").disabled = !hasData;
   chart.update(state.settings, state.series, resetZoom);
+  persistence.schedule();
 }
 
 function renderAll(resetZoom = false) {
+  renderFolders();
   renderFiles();
   renderMetrics();
   refreshSeries(resetZoom);
@@ -246,6 +334,7 @@ function renderAll(resetZoom = false) {
 }
 
 function loadDemo() {
+  state.mode = "demo";
   state.datasets = demoDatasets();
   state.selected = new Set(["val_iou"]);
   state.seriesPrefs = {};
@@ -283,37 +372,75 @@ function readFile(file) {
   });
 }
 
+function addDatasets(added) {
+  if (!added.length) return;
+  const replacing = !state.datasets.length || state.mode === "demo";
+  if (replacing) {
+    state.datasets = [];
+    state.seriesPrefs = {};
+    state.nextColor = 0;
+    state.statsId = "";
+    state.selected = new Set();
+    state.tableQuery = "";
+    $("#table-search").value = "";
+  }
+  state.mode = "files";
+  state.datasets.push(...added);
+  if (replacing) {
+    state.selected = new Set(
+      metricList(state.datasets)
+        .slice(0, 2)
+        .map((metric) => metric.label),
+    );
+    state.settings.title = baseName(added[0].filename);
+    state.settings.yLabel = "Value";
+    state.settings.xLabel = "Epoch";
+  }
+  state.tableId = added[0].id;
+  state.page = 0;
+  state.sortColumn = null;
+}
+
+function forgetFiles(ids) {
+  state.datasets = state.datasets.filter((dataset) => !ids.has(dataset.id));
+  state.files = state.files.filter((file) => !ids.has(file.id));
+  for (const id of Object.keys(state.seriesPrefs))
+    if (ids.has(id.split(":")[0])) delete state.seriesPrefs[id];
+  const labels = new Set(
+    metricList(state.datasets).map((metric) => metric.label),
+  );
+  state.selected = new Set(
+    [...state.selected].filter((label) => labels.has(label)),
+  );
+  state.sortColumn = null;
+  state.page = 0;
+}
+
 async function importFiles(files) {
-  if (state.busy) {
-    toast("正在解析文件，请稍候。");
+  if (!state.ready || state.busy) {
+    toast("正在读取文件，请稍候。");
+    return;
+  }
+  if (!state.activeFolderId) {
+    toast("请先创建并选择一个目录。");
     return;
   }
   if (!files.length) return;
+  const folderId = state.activeFolderId;
   state.busy = true;
-  document.querySelectorAll(".upload-trigger").forEach((button) => {
-    button.disabled = true;
-  });
+  updateUploadButtons();
   state.notices = [];
   const added = [];
-  toast("正在读取 CSV…");
+  toast("正在读取并上传 CSV…");
   for (const file of files) {
-    if (!/\.csv$/i.test(file.name)) {
-      state.notices.push({
-        type: "error",
-        message: `${file.name}：请选择 .csv 文件。`,
-      });
-      continue;
-    }
-    if (file.size > 50 * 1024 * 1024) {
-      state.notices.push({
-        type: "error",
-        message: `${file.name}：单个文件最大支持 50 MB，请拆分后导入。`,
-      });
-      continue;
-    }
     try {
+      if (!/\.csv$/i.test(file.name)) throw new Error("请选择 .csv 文件。");
+      if (file.size > 50 * 1024 * 1024)
+        throw new Error("单个文件最大支持 50 MB，请拆分后上传。");
       const dataset = await readFile(file);
-      added.push({ ...dataset, id: `file${++fileSequence}` });
+      const metadata = await uploadCSV(folderId, file);
+      state.files.push(metadata);
+      added.push({ ...dataset, id: metadata.id, folderId });
     } catch (error) {
       state.notices.push({
         type: "error",
@@ -321,64 +448,162 @@ async function importFiles(files) {
       });
     }
   }
-  if (added.length) {
-    const replacing =
-      !state.datasets.length || state.datasets.some((dataset) => dataset.demo);
-    if (replacing) {
-      state.datasets = [];
-      state.seriesPrefs = {};
-      state.nextColor = 0;
-      state.statsId = "";
-      state.selected = new Set();
-      state.tableQuery = "";
-      $("#table-search").value = "";
-    }
-    state.datasets.push(...added);
-    if (replacing) {
-      state.selected = new Set(
-        metricList(state.datasets)
-          .slice(0, 2)
-          .map((metric) => metric.label),
-      );
-      state.settings.title = baseName(added[0].filename);
-      state.settings.yLabel = "Value";
-      state.settings.xLabel = "Epoch";
-    }
-    state.tableId = added[0].id;
-    state.page = 0;
-    state.sortColumn = null;
-  }
+  addDatasets(added);
   state.busy = false;
-  document.querySelectorAll(".upload-trigger").forEach((button) => {
-    button.disabled = false;
-  });
+  updateUploadButtons();
   $("#file-input").value = "";
   renderAll(added.length > 0);
+  await persistence.flush();
   toast(
     added.length
-      ? `已导入 ${added.length} 个 CSV 文件${state.notices.length ? "，部分文件未能读取，请查看提示。" : ""}`
-      : "未导入文件，请查看数据读取提示。",
+      ? `已将 ${added.length} 个 CSV 保存到服务器${state.notices.length ? "，部分文件失败，请查看提示。" : "。"}`
+      : "未上传文件，请查看数据读取提示。",
   );
+}
+
+async function initialize() {
+  try {
+    const saved = await apiJSON("/api/state");
+    state.folders = saved.folders;
+    state.files = saved.files;
+    const value = persistence.restore(saved.workspace);
+    state.activeFolderId = state.folders.some(
+      (folder) => folder.id === value?.activeFolderId,
+    )
+      ? value.activeFolderId
+      : (state.folders[0]?.id ?? "");
+    if (value) {
+      const datasets = [];
+      const demos = value.mode === "demo" ? demoDatasets() : [];
+      for (const view of value.datasets) {
+        let dataset = demos.find((item) => item.id === view.id);
+        if (!dataset) {
+          const metadata = state.files.find((file) => file.id === view.id);
+          if (!metadata) continue;
+          dataset = {
+            ...(await readFile(await storedCSV(metadata))),
+            id: metadata.id,
+            folderId: metadata.folderId,
+          };
+        }
+        dataset.name = typeof view.name === "string" ? view.name : dataset.name;
+        dataset.enabled = view.enabled !== false;
+        if (
+          view.xColumn === "__row" ||
+          dataset.columns.some((column) => column.id === view.xColumn)
+        )
+          dataset.xColumn = view.xColumn;
+        datasets.push(dataset);
+      }
+      state.datasets = datasets;
+      state.mode = value.mode;
+      const metrics = new Set(
+        metricList(datasets).map((metric) => metric.label),
+      );
+      state.selected = new Set(
+        value.selected.filter((label) => metrics.has(label)),
+      );
+      state.seriesPrefs = value.seriesPrefs || {};
+      state.nextColor = value.nextColor || 0;
+      state.settings = { ...state.settings, ...value.settings };
+      for (const key of [
+        "statsId",
+        "tableId",
+        "sortColumn",
+        "sortDirection",
+        "tableQuery",
+        "precision",
+        "page",
+      ])
+        if (value[key] !== undefined) state[key] = value[key];
+      state.openFiles = new Set(value.openFiles || []);
+      chart.restoreView(value.view);
+      $("#table-search").value = state.tableQuery;
+      $("#table-precision").value = state.precision;
+      $("#export-width").value = state.settings.exportWidth;
+    } else if (!state.files.length) {
+      loadDemo();
+    }
+    state.ready = true;
+    $("#workspace-loading").hidden = true;
+    $("#workspace-surface").hidden = false;
+    $("#data-surface").hidden = false;
+    renderAll();
+    if (value) {
+      $("#table-scroll").scrollLeft = value.tableScroll || 0;
+      window.scrollTo(0, value.scrollY || 0);
+    }
+    persistence.enable();
+  } catch (error) {
+    $("#workspace-loading").innerHTML =
+      `<p>工作区恢复失败：${esc(error.message)}</p><button id="retry-load" class="button" type="button">重新读取</button>`;
+    $("#retry-load").onclick = initialize;
+    $("#save-status").textContent = "服务器暂不可用";
+  }
 }
 
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("button");
   if (!target) return;
   if (target.classList.contains("upload-trigger")) $("#file-input").click();
+  if (target.dataset.folder) {
+    state.activeFolderId = target.dataset.folder;
+    renderFolders();
+    renderFiles();
+  }
+  if (target.dataset.deleteFolder) {
+    if (state.busy) {
+      toast("请等待文件上传完成后再删除目录。");
+      return;
+    }
+    const folder = state.folders.find(
+      (item) => item.id === target.dataset.deleteFolder,
+    );
+    const count = state.files.filter(
+      (file) => file.folderId === folder.id,
+    ).length;
+    if (
+      !window.confirm(
+        `删除目录“${folder.name}”及其中的 ${count} 个 CSV 文件？此操作会从服务器删除文件。`,
+      )
+    )
+      return;
+    target.disabled = true;
+    try {
+      const result = await apiJSON(`/api/folders/${folder.id}`, "DELETE");
+      forgetFiles(new Set(result.deletedFileIds));
+      state.folders = state.folders.filter((item) => item.id !== folder.id);
+      if (state.activeFolderId === folder.id)
+        state.activeFolderId = state.folders[0]?.id ?? "";
+      renderAll(true);
+      await persistence.flush();
+      toast("目录及其中的 CSV 文件已删除。");
+    } catch (error) {
+      target.disabled = false;
+      toast(error.message);
+    }
+  }
   if (target.dataset.removeFile) {
-    const removed = target.dataset.removeFile;
-    state.datasets = state.datasets.filter((dataset) => dataset.id !== removed);
-    for (const id of Object.keys(state.seriesPrefs))
-      if (id.startsWith(`${removed}:`)) delete state.seriesPrefs[id];
-    const labels = new Set(
-      metricList(state.datasets).map((metric) => metric.label),
-    );
-    state.selected = new Set(
-      [...state.selected].filter((label) => labels.has(label)),
-    );
-    state.sortColumn = null;
-    state.page = 0;
-    renderAll(true);
+    if (state.busy) {
+      toast("请等待文件上传完成后再删除文件。");
+      return;
+    }
+    const id = target.dataset.removeFile;
+    const demo = state.datasets.find((dataset) => dataset.id === id)?.demo;
+    const filename = state.files.find((file) => file.id === id)?.filename;
+    if (!demo && !window.confirm(`从服务器删除“${filename}”？此操作无法撤销。`))
+      return;
+    target.disabled = true;
+    try {
+      if (!demo) await apiJSON(`/api/files/${id}`, "DELETE");
+      forgetFiles(new Set([id]));
+      renderAll(true);
+      await persistence.flush();
+      toast(demo ? "示例已移除。" : "CSV 文件已从服务器删除。");
+    } catch (error) {
+      target.disabled = false;
+      toast(error.message);
+    }
   }
   if (target.dataset.sort != null) {
     const column = Number(target.dataset.sort);
@@ -410,7 +635,7 @@ document.addEventListener("click", async (event) => {
   }
 });
 
-document.addEventListener("change", (event) => {
+document.addEventListener("change", async (event) => {
   const target = event.target;
   if (target.dataset.metric != null) {
     if (target.checked) state.selected.add(target.dataset.metric);
@@ -427,11 +652,28 @@ document.addEventListener("change", (event) => {
     refreshSeries();
   }
   if (target.dataset.fileEnabled) {
-    state.datasets.find(
-      (item) => item.id === target.dataset.fileEnabled,
-    ).enabled = target.checked;
+    const id = target.dataset.fileEnabled;
+    const dataset = state.datasets.find((item) => item.id === id);
+    if (dataset) dataset.enabled = target.checked;
+    else if (target.checked) {
+      target.disabled = true;
+      try {
+        const metadata = state.files.find((file) => file.id === id);
+        const parsed = await readFile(await storedCSV(metadata));
+        if (!state.files.some((file) => file.id === id)) return;
+        if (!state.datasets.some((item) => item.id === id))
+          addDatasets([{ ...parsed, id, folderId: metadata.folderId }]);
+      } catch (error) {
+        target.checked = false;
+        target.disabled = false;
+        toast(error.message);
+        return;
+      }
+    }
     renderFiles();
+    renderMetrics();
     refreshSeries();
+    renderTable();
   }
   if (target.dataset.fileName) {
     const dataset = state.datasets.find(
@@ -463,9 +705,10 @@ document.addEventListener(
   "toggle",
   (event) => {
     const id = event.target.dataset?.fileDetails;
-    if (id) {
+    if (id && event.target.isConnected) {
       if (event.target.open) state.openFiles.add(id);
       else state.openFiles.delete(id);
+      persistence.schedule();
     }
   },
   true,
@@ -516,6 +759,7 @@ $("#reset-zoom").addEventListener("click", () => chart.reset());
 $("#load-demo").addEventListener("click", loadDemo);
 $("#export-width").addEventListener("change", (event) => {
   state.settings.exportWidth = Number(event.target.value);
+  persistence.schedule();
 });
 $("#export-toggle").addEventListener("click", () => {
   $("#export-menu").hidden = !$("#export-menu").hidden;
@@ -561,6 +805,7 @@ document.querySelectorAll("[data-setting]").forEach((input) =>
           : input.value;
     $("#line-width-value").textContent = `${state.settings.lineWidth} px`;
     chart.update(state.settings, state.series);
+    persistence.schedule();
   }),
 );
 
@@ -596,4 +841,38 @@ window.addEventListener("blur", () => {
   dragDepth = 0;
   $("#drag-overlay").hidden = true;
 });
-loadDemo();
+$("#save-status").addEventListener("click", () => persistence.flush());
+$("#new-folder").addEventListener("click", () => {
+  $("#folder-name").value = "";
+  $("#folder-error").textContent = "";
+  $("#folder-dialog").showModal();
+  $("#folder-name").focus();
+});
+$("#close-folder").addEventListener("click", () => $("#folder-dialog").close());
+$("#folder-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#create-folder").disabled = true;
+  try {
+    const folder = await apiJSON("/api/folders", "POST", {
+      name: $("#folder-name").value,
+    });
+    state.folders.push(folder);
+    state.activeFolderId = folder.id;
+    $("#folder-dialog").close();
+    renderFolders();
+    renderFiles();
+    await persistence.flush();
+    toast("目录已创建。");
+  } catch (error) {
+    $("#folder-error").textContent = error.message;
+  } finally {
+    $("#create-folder").disabled = false;
+  }
+});
+window.addEventListener("scroll", () => persistence.schedule(), {
+  passive: true,
+});
+$("#table-scroll").addEventListener("scroll", () => persistence.schedule(), {
+  passive: true,
+});
+initialize();

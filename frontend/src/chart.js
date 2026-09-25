@@ -33,11 +33,16 @@ function marks(series, index) {
       : series.extreme === "none"
         ? []
         : [series.extreme];
-  if (series.extreme === "both" && series.stats.max?.value[1] === series.stats.min?.value[1]) kinds = ["both"];
+  if (
+    series.extreme === "both" &&
+    series.stats.max?.value[1] === series.stats.min?.value[1]
+  )
+    kinds = ["both"];
   return kinds.flatMap((kind) => {
     const point = series.stats[kind === "both" ? "max" : kind];
     if (!point) return [];
-    const label = kind === "both" ? "Max / Min" : kind === "max" ? "Max" : "Min";
+    const label =
+      kind === "both" ? "Max / Min" : kind === "max" ? "Max" : "Min";
     const middle =
       (series.points[0].value[0] + series.points.at(-1).value[0]) / 2;
     return [
@@ -265,24 +270,32 @@ export function makeOptions(
   };
 }
 
-export function createChart(element, onLegend) {
+export function createChart(element, onLegend, onViewChange = () => {}) {
   const instance = echarts.init(element, null, { renderer: "canvas" });
   let zoom = [0, 100];
+  let legendScroll = 0;
   let currentSettings,
     currentSeries = [];
   instance.on("legendselectchanged", (event) => onLegend(event.selected));
   instance.on("datazoom", () => {
     const options = instance.getOption().dataZoom[0];
     zoom = [options.start, options.end];
+    onViewChange();
+  });
+  instance.on("legendscroll", (event) => {
+    legendScroll = event.scrollDataIndex;
+    onViewChange();
   });
   const update = (settings, series, reset = false) => {
     if (reset) zoom = [0, 100];
     currentSettings = settings;
     currentSeries = series;
-    instance.setOption(
-      makeOptions(settings, series, { width: element.clientWidth, zoom }),
-      { notMerge: true },
-    );
+    const option = makeOptions(settings, series, {
+      width: element.clientWidth,
+      zoom,
+    });
+    option.legend.scrollDataIndex = legendScroll;
+    instance.setOption(option, { notMerge: true });
   };
   const observer = new ResizeObserver(() => {
     instance.resize();
@@ -293,7 +306,21 @@ export function createChart(element, onLegend) {
     instance,
     update,
     getZoom: () => [...zoom],
-    reset: () => update(currentSettings, currentSeries, true),
+    getView: () => ({ zoom: [...zoom], legendScroll }),
+    restoreView: (view) => {
+      if (
+        Array.isArray(view?.zoom) &&
+        view.zoom.length === 2 &&
+        view.zoom.every((n) => Number.isFinite(n) && n >= 0 && n <= 100) &&
+        view.zoom[0] <= view.zoom[1]
+      )
+        zoom = [...view.zoom];
+      legendScroll = Math.max(0, Number(view?.legendScroll) || 0);
+    },
+    reset: () => {
+      update(currentSettings, currentSeries, true);
+      onViewChange();
+    },
     destroy: () => {
       observer.disconnect();
       instance.dispose();

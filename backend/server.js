@@ -3,10 +3,15 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { FileStore } from "./storage.js";
+import { handleAPI } from "./api.js";
 
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3045);
+const store = await new FileStore(
+  process.env.DATA_DIR || fileURLToPath(new URL("../data/", import.meta.url)),
+).init();
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -23,8 +28,17 @@ const server = http.createServer(async (request, response) => {
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   );
+  let url;
+  try {
+    url = new URL(request.url, "http://localhost");
+  } catch {
+    response.writeHead(400);
+    response.end("Bad request");
+    return;
+  }
+  if (await handleAPI(request, response, url, store)) return;
   if (!["GET", "HEAD"].includes(request.method)) {
     response.writeHead(405, { Allow: "GET, HEAD" });
     response.end("Method not allowed");
@@ -88,7 +102,9 @@ const server = http.createServer(async (request, response) => {
   }
 });
 server.listen(port, host, () =>
-  console.log(`VisualizeMetrics running at http://${host}:${port}`),
+  console.log(
+    `VisualizeMetrics running at http://${host}:${server.address().port}`,
+  ),
 );
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => server.close(() => process.exit(0)));

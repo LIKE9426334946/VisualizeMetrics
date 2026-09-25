@@ -10,6 +10,7 @@ ExecStart=/usr/bin/node /opt/VisualizeMetrics/backend/server.js
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3045
+Environment=DATA_DIR=/opt/VisualizeMetrics/data
 Restart=always
 RestartSec=3
 

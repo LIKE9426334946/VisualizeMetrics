@@ -1,4 +1,7 @@
 const paths = {
+  folder:
+    '<path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
   upload: '<path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/>',
   download: '<path d="M12 4v12m-5-5 5 5 5-5M4 17v3h16v-3"/>',
   file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',

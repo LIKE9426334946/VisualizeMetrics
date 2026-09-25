@@ -1559,3 +1559,163 @@ dialog::backdrop {
     animation: none !important;
   }
 }
+
+.save-status {
+  border: 0;
+  background: transparent;
+  padding: 6px 0;
+  color: #7b8ba3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.save-status:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.save-status[data-status="error"] {
+  color: #bc514b;
+  text-decoration: underline;
+}
+.save-status[data-status="saving"] {
+  color: #597bd2;
+}
+.workspace-loading {
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: #7b8ba3;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 30px;
+}
+#folder-list {
+  display: grid;
+  gap: 5px;
+  max-height: 230px;
+  overflow: auto;
+}
+.folder-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+}
+.folder-row.active {
+  background: #eef3ff;
+}
+.folder-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 7px;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: #687d9d;
+}
+.folder-select span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-select small {
+  font-size: 11px;
+  color: #9aa9bf;
+}
+.folder-row.active .folder-select {
+  color: var(--blue);
+}
+.delete-folder {
+  color: #9eabc0;
+  width: 27px;
+}
+.delete-folder:hover,
+.remove-file:hover {
+  color: #bc514b;
+  background: #fff1f0;
+}
+.folder-help {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+.current-folder {
+  font-size: 12px;
+  color: #8293ad;
+  margin: -3px 0 13px;
+  overflow-wrap: anywhere;
+}
+.demo-file-note {
+  font-size: 11px;
+  color: #94a2b8;
+  margin-bottom: 9px;
+}
+#folder-error {
+  font-size: 13px;
+  margin-top: 12px;
+}
+.file-card-top .model-name:disabled {
+  background: transparent;
+  opacity: 1;
+}
+@media (max-width: 700px) {
+  .app-header {
+    height: auto;
+    min-height: 82px;
+    flex-wrap: wrap;
+    padding: 12px 16px 10px;
+    gap: 6px 12px;
+  }
+  .header-actions {
+    display: contents;
+  }
+  .header-actions .upload-trigger {
+    margin-left: auto;
+  }
+  .save-status {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+    padding: 0;
+    font-size: 10px;
+    white-space: nowrap;
+    text-align: right;
+  }
+  #folder-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sidebar-section #file-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-height: 300px;
+    overflow: auto;
+  }
+  .sidebar-section #file-list .file-card {
+    flex: 1 1 170px;
+  }
+  .demo-file-note,
+  #file-list > .empty-help {
+    flex-basis: 100%;
+  }
+  .folder-help {
+    margin-top: 9px;
+  }
+}
+@media (max-width: 380px) {
+  .save-status {
+    max-width: none;
+  }
+  .header-actions .button {
+    padding: 7px 8px;
+  }
+  .brand strong {
+    font-size: 16px;
+  }
+}
