@@ -10,6 +10,7 @@ import { metricList, buildSeries, sortRows } from "./data.js";
 import { demoDatasets } from "./demo.js";
 import { createChart } from "./chart.js";
 import { exportChart } from "./export.js";
+import { createSummary } from "./summary.js";
 import { apiJSON, uploadCSV, storedCSV, createPersistence } from "./server.js";
 
 const $ = (selector) => document.querySelector(selector);
@@ -42,6 +43,7 @@ const state = {
   notices: [],
   openFiles: new Set(),
   busy: false,
+  summaryConfigs: {},
   settings: {
     title: "训练指标",
     xLabel: "Epoch",
@@ -74,6 +76,13 @@ const persistence = createPersistence(workspaceSnapshot, (status, message) => {
   button.disabled = status !== "error";
   button.title = message || "CSV 和当前图表状态已保存到服务器";
 });
+const summary = createSummary({
+  element: $("#summary-surface"),
+  state,
+  loadDataset: async (metadata) => readFile(await storedCSV(metadata)),
+  onChange: () => persistence.schedule(),
+  notify: toast,
+});
 
 function workspaceSnapshot() {
   return {
@@ -90,6 +99,7 @@ function workspaceSnapshot() {
     seriesPrefs: state.seriesPrefs,
     nextColor: state.nextColor,
     settings: state.settings,
+    summaryConfigs: state.summaryConfigs,
     statsId: state.statsId,
     tableId: state.tableId,
     sortColumn: state.sortColumn,
@@ -331,6 +341,7 @@ function renderAll(resetZoom = false) {
   refreshSeries(resetZoom);
   renderTable();
   renderNotices();
+  summary.refresh();
 }
 
 function loadDemo() {
@@ -506,6 +517,7 @@ async function initialize() {
       state.seriesPrefs = value.seriesPrefs || {};
       state.nextColor = value.nextColor || 0;
       state.settings = { ...state.settings, ...value.settings };
+      state.summaryConfigs = value.summaryConfigs || {};
       for (const key of [
         "statsId",
         "tableId",
@@ -550,6 +562,7 @@ document.addEventListener("click", async (event) => {
     state.activeFolderId = target.dataset.folder;
     renderFolders();
     renderFiles();
+    summary.refresh();
   }
   if (target.dataset.deleteFolder) {
     if (state.busy) {
@@ -573,6 +586,7 @@ document.addEventListener("click", async (event) => {
       const result = await apiJSON(`/api/folders/${folder.id}`, "DELETE");
       forgetFiles(new Set(result.deletedFileIds));
       state.folders = state.folders.filter((item) => item.id !== folder.id);
+      delete state.summaryConfigs[folder.id];
       if (state.activeFolderId === folder.id)
         state.activeFolderId = state.folders[0]?.id ?? "";
       renderAll(true);
@@ -674,6 +688,7 @@ document.addEventListener("change", async (event) => {
     renderMetrics();
     refreshSeries();
     renderTable();
+    summary.refresh();
   }
   if (target.dataset.fileName) {
     const dataset = state.datasets.find(
@@ -682,6 +697,7 @@ document.addEventListener("change", async (event) => {
     dataset.name = target.value.trim() || baseName(dataset.filename);
     renderFiles();
     refreshSeries();
+    summary.refresh();
   }
   if (target.dataset.xColumn) {
     const dataset = state.datasets.find(
@@ -861,6 +877,7 @@ $("#folder-form").addEventListener("submit", async (event) => {
     $("#folder-dialog").close();
     renderFolders();
     renderFiles();
+    summary.refresh();
     await persistence.flush();
     toast("目录已创建。");
   } catch (error) {

@@ -1,6 +1,6 @@
 import { echarts, makeOptions } from "./chart.js";
 
-function download(blob, filename) {
+export function download(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

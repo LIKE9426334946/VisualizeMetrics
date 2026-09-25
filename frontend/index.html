@@ -216,6 +216,138 @@
       </div>
 
       <section
+        id="summary-surface"
+        class="panel summary-panel"
+        aria-labelledby="summary-heading"
+        hidden
+      >
+        <div class="summary-heading-row">
+          <div>
+            <div class="eyebrow">MODEL COMPARISON</div>
+            <div class="data-heading">
+              <h2 id="summary-heading">模型汇总</h2>
+              <span id="summary-count" class="count-badge">0 个模型</span>
+            </div>
+            <p class="summary-folder-line">
+              当前目录：<strong id="summary-folder"></strong> · 包含目录内所有
+              CSV
+            </p>
+          </div>
+          <div class="summary-downloads">
+            <button
+              class="button"
+              type="button"
+              data-summary-export="svg"
+              disabled
+            >
+              SVG
+            </button>
+            <button
+              class="button primary"
+              type="button"
+              data-summary-export="png"
+              disabled
+            >
+              <span data-icon="download"></span>下载表格 PNG · 2×
+            </button>
+          </div>
+        </div>
+        <fieldset id="summary-controls" disabled>
+          <legend class="sr-only">汇总表配置</legend>
+          <div class="summary-controls-row">
+            <label
+              >排序指标<select
+                id="summary-rank"
+                aria-label="汇总排序指标"
+              ></select
+            ></label>
+            <label
+              >排序取值<select id="summary-method" aria-label="排序指标取值">
+                <option value="max">最大值 Max</option>
+                <option value="min">最小值 Min</option>
+                <option value="last">末次有效值 Last</option>
+              </select></label
+            >
+            <label
+              >顺序<select id="summary-direction" aria-label="汇总排序顺序">
+                <option value="desc">降序 · 高 → 低</option>
+                <option value="asc">升序 · 低 → 高</option>
+              </select></label
+            >
+            <label class="summary-mode-control"
+              >表格取值<select id="summary-mode" aria-label="汇总表取值方式">
+                <option value="independent">各指标独立统计</option>
+                <option value="aligned">排序指标所在 Epoch 的整行</option>
+              </select></label
+            >
+            <label
+              >精度<select id="summary-precision" aria-label="汇总数值精度">
+                <option value="2">2 位</option>
+                <option value="4" selected>4 位</option>
+                <option value="6">6 位</option>
+                <option value="8">8 位</option>
+                <option value="raw">原始值</option>
+              </select></label
+            >
+          </div>
+          <details class="summary-fields-config">
+            <summary>
+              显示字段与 Epoch <span>选择列和各列取值方式</span>
+            </summary>
+            <div class="summary-selection">
+              <button
+                class="text-button"
+                type="button"
+                data-summary-selection="all"
+              >
+                全选字段</button
+              ><span>/</span
+              ><button
+                class="text-button"
+                type="button"
+                data-summary-selection="none"
+              >
+                取消全部
+              </button>
+            </div>
+            <div id="summary-fields"></div>
+          </details>
+        </fieldset>
+        <p id="summary-loading" class="summary-message" role="status" hidden>
+          正在读取当前目录的 CSV…
+        </p>
+        <div
+          id="summary-error"
+          class="summary-message error-text"
+          role="alert"
+          hidden
+        >
+          <span id="summary-error-text"></span
+          ><button id="summary-retry" class="text-button" type="button">
+            重新读取
+          </button>
+        </div>
+        <p id="summary-description" class="summary-description"></p>
+        <div
+          class="table-scroll summary-scroll"
+          tabindex="0"
+          aria-label="可横向滚动的模型汇总表"
+        >
+          <table id="summary-table">
+            <thead id="summary-head"></thead>
+            <tbody id="summary-body"></tbody>
+          </table>
+        </div>
+        <div class="summary-foot">
+          <p id="summary-note"></p>
+          <p>
+            缺失值显示 —，缺失排序指标的模型排在末尾；无效 epoch
+            不参与统计，缺少 epoch 时使用行号。下载包含全部行与列。
+          </p>
+        </div>
+      </section>
+
+      <section
         id="data-surface"
         class="panel data-panel"
         aria-labelledby="data-heading"
