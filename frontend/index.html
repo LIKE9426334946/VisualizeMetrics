@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="在浏览器中查看深度学习训练曲线，对比实验，标注最佳 epoch，导出高清 PNG 与 SVG。CSV 数据仅在本地处理。"
+    />
+    <meta name="theme-color" content="#3563e9" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>VisualizeMetrics · 训练指标可视化</title>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="VisualizeMetrics 首页">
+        <span class="brand-mark" data-icon="chart"></span>
+        <span
+          ><strong>Visualize<span>Metrics</span></strong
+          ><small>TRAINING ANALYTICS</small></span
+        >
+      </a>
+      <div class="header-actions">
+        <span class="privacy-note"
+          ><span data-icon="shield"></span>本地解析 · 数据不上传</span
+        >
+        <button class="button primary upload-trigger" type="button">
+          <span data-icon="upload"></span><span>上传 CSV</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="workspace-heading">
+        <div>
+          <div class="eyebrow">EXPERIMENT WORKSPACE</div>
+          <h1>训练曲线工作台</h1>
+        </div>
+        <div class="workspace-meta">
+          <span id="workspace-count"></span
+          ><span id="demo-badge" class="badge">示例数据</span
+          ><button id="load-demo" class="text-button" type="button">
+            加载示例
+          </button>
+        </div>
+      </div>
+      <div id="notices" aria-live="polite"></div>
+
+      <div class="workspace">
+        <aside class="sidebar" aria-label="文件和指标选择">
+          <section class="sidebar-section">
+            <div class="section-title">
+              <h2>
+                实验文件 <span id="file-count" class="count-badge">0</span>
+              </h2>
+              <button
+                class="icon-button upload-trigger"
+                type="button"
+                aria-label="添加 CSV 文件"
+                data-icon="plus"
+              ></button>
+            </div>
+            <div id="file-list"></div>
+            <button class="drop-zone upload-trigger" type="button">
+              <span data-icon="upload"></span><span>点击或拖拽 CSV 到这里</span
+              ><small>支持多个文件 · UTF-8</small>
+            </button>
+          </section>
+          <section class="sidebar-section">
+            <div class="section-title">
+              <h2>指标 <span class="section-en">METRICS</span></h2>
+              <span id="metric-count" class="muted small"></span>
+            </div>
+            <div class="selection-actions">
+              <button id="select-all" class="text-button" type="button">
+                全选</button
+              ><span>/</span
+              ><button id="select-none" class="text-button" type="button">
+                取消全部</button
+              ><span id="selected-count" class="muted small"></span>
+            </div>
+            <div id="metric-list" class="metric-list"></div>
+          </section>
+          <section class="sidebar-section extreme-section">
+            <div class="section-title">
+              <h2>曲线与极值 <span class="section-en">EXTREMA</span></h2>
+            </div>
+            <p class="section-help">逐条设置显示状态和 Max / Min 标记。</p>
+            <div id="series-list"></div>
+          </section>
+          <div class="sidebar-foot">
+            <span data-icon="shield" size="16"></span
+            ><span>文件保留在当前浏览器页面<br />刷新后需要重新导入</span>
+          </div>
+        </aside>
+
+        <div class="analysis">
+          <section class="panel chart-panel" aria-labelledby="chart-heading">
+            <div class="panel-toolbar">
+              <div class="chart-heading">
+                <span class="toolbar-icon" data-icon="chart"></span>
+                <h2 id="chart-heading">训练曲线</h2>
+                <span id="curve-count" class="count-badge">0 条</span>
+              </div>
+              <div class="chart-actions">
+                <button
+                  id="reset-zoom"
+                  class="icon-button"
+                  type="button"
+                  aria-label="重置图表缩放"
+                  title="重置缩放"
+                  data-icon="reset"
+                ></button>
+                <button
+                  id="open-settings"
+                  class="button small-button"
+                  type="button"
+                >
+                  <span data-icon="settings"></span><span>图表设置</span>
+                </button>
+                <div class="export-wrap">
+                  <button
+                    id="export-toggle"
+                    class="button primary small-button"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="export-menu"
+                  >
+                    <span data-icon="download"></span><span>保存图表</span>
+                  </button>
+                  <div id="export-menu" class="export-menu" hidden>
+                    <label for="export-width">PNG 图片宽度</label>
+                    <select id="export-width">
+                      <option value="1600">1600 px</option>
+                      <option value="2400" selected>2400 px · 推荐</option>
+                      <option value="4800">4800 px · 超清</option>
+                    </select>
+                    <button
+                      class="button primary"
+                      data-export="png"
+                      type="button"
+                    >
+                      下载 PNG
+                    </button>
+                    <button class="button" data-export="svg" type="button">
+                      下载 SVG 矢量图
+                    </button>
+                    <small>保留当前缩放范围、图例及极值标记。</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <div id="chart" role="img" aria-label="训练指标折线图"></div>
+              <div id="chart-empty" class="chart-empty" hidden>
+                <span data-icon="chart" size="32"></span
+                ><strong>选择指标，开始查看曲线</strong>
+                <p>上传 CSV，并在左侧勾选需要显示的指标。</p>
+                <button class="button upload-trigger" type="button">
+                  上传 CSV
+                </button>
+              </div>
+            </div>
+            <div class="chart-footer">
+              <span>Ctrl + 滚轮缩放 · 拖动平移 · 下方滑块选择范围</span
+              ><span id="chart-data-note">完整数据，无平滑处理</span>
+            </div>
+          </section>
+
+          <section class="panel stats-panel" aria-labelledby="stats-heading">
+            <div class="stats-toolbar">
+              <div>
+                <div class="eyebrow">METRIC INSIGHTS</div>
+                <h2 id="stats-heading">找到最佳 Epoch</h2>
+              </div>
+              <label class="stats-choice"
+                ><span class="sr-only">统计指标</span
+                ><select id="stats-series" aria-label="统计指标"></select
+              ></label>
+            </div>
+            <div id="stats-content"></div>
+            <p class="stats-foot">
+              统计基于完整 CSV；极值并列时显示最早的 epoch，Last 为最后一个有效
+              epoch 的值。
+            </p>
+          </section>
+        </div>
+      </div>
+
+      <section class="panel data-panel" aria-labelledby="data-heading">
+        <div class="data-toolbar">
+          <div class="data-heading">
+            <span class="toolbar-icon" data-icon="table"></span>
+            <h2 id="data-heading">原始数据</h2>
+            <span id="table-row-count" class="count-badge"></span>
+          </div>
+          <div class="table-controls">
+            <select id="table-dataset" aria-label="原始数据文件"></select>
+            <label class="search-box"
+              ><span data-icon="search" size="16"></span
+              ><input
+                id="table-search"
+                type="search"
+                placeholder="搜索数据…"
+                aria-label="搜索原始数据"
+            /></label>
+            <label class="precision-control"
+              >精度<select id="table-precision" aria-label="数值精度">
+                <option value="raw">原始值</option>
+                <option value="2">2 位</option>
+                <option value="4">4 位</option>
+                <option value="6" selected>6 位</option>
+                <option value="8">8 位</option>
+              </select></label
+            >
+          </div>
+        </div>
+        <div
+          id="table-scroll"
+          class="table-scroll"
+          tabindex="0"
+          aria-label="可横向滚动的原始数据"
+        >
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+        <div class="table-footer">
+          <span id="table-summary"></span>
+          <div class="pagination">
+            <button
+              id="page-prev"
+              class="icon-button"
+              type="button"
+              aria-label="上一页"
+            >
+              <span class="rotate" data-icon="chevron" size="16"></span></button
+            ><span id="page-info"></span
+            ><button
+              id="page-next"
+              class="icon-button"
+              type="button"
+              aria-label="下一页"
+              data-icon="chevron"
+              size="16"
+            ></button>
+          </div>
+        </div>
+      </section>
+      <footer class="page-footer">
+        <span
+          >VisualizeMetrics
+          <span class="muted">/</span> 让每一次训练都有迹可循</span
+        ><span>CSV → Curves → Insights</span>
+      </footer>
+    </main>
+
+    <input id="file-input" type="file" accept=".csv,text/csv" multiple hidden />
+    <div id="drag-overlay" class="drag-overlay" hidden>
+      <div>
+        <span data-icon="upload" size="40"></span>
+        <h2>松开鼠标，导入 CSV</h2>
+        <p>支持一次拖入多个实验文件</p>
+      </div>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <dialog id="settings-dialog">
+      <div class="dialog-title">
+        <div>
+          <div class="eyebrow">CHART SETTINGS</div>
+          <h2>图表设置</h2>
+        </div>
+        <button
+          id="close-settings"
+          class="icon-button"
+          type="button"
+          aria-label="关闭图表设置"
+          data-icon="close"
+        ></button>
+      </div>
+      <div class="settings-form">
+        <label
+          >图表标题<input
+            id="setting-title"
+            data-setting="title"
+            type="text"
+            maxlength="160"
+        /></label>
+        <div class="form-row">
+          <label
+            >X 轴名称<input
+              id="setting-x"
+              data-setting="xLabel"
+              type="text"
+              maxlength="80" /></label
+          ><label
+            >Y 轴名称<input
+              id="setting-y"
+              data-setting="yLabel"
+              type="text"
+              maxlength="80"
+          /></label>
+        </div>
+        <div class="switch-row">
+          <label for="setting-grid">显示网格</label
+          ><input
+            id="setting-grid"
+            data-setting="grid"
+            type="checkbox"
+            role="switch"
+          />
+        </div>
+        <div class="switch-row">
+          <label for="setting-points">显示数据点</label
+          ><input
+            id="setting-points"
+            data-setting="points"
+            type="checkbox"
+            role="switch"
+          />
+        </div>
+        <div class="switch-row">
+          <label for="setting-legend">显示图例</label
+          ><input
+            id="setting-legend"
+            data-setting="legend"
+            type="checkbox"
+            role="switch"
+          />
+        </div>
+        <label class="range-label"
+          >曲线粗细 <output id="line-width-value">2.5 px</output
+          ><input
+            id="setting-line"
+            data-setting="lineWidth"
+            type="range"
+            min="1"
+            max="6"
+            step="0.5"
+        /></label>
+      </div>
+      <div class="dialog-footer">
+        <span class="muted small">设置实时生效，同时应用于导出图片</span
+        ><button id="done-settings" class="button primary" type="button">
+          完成
+        </button>
+      </div>
+    </dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
