@@ -7,6 +7,7 @@ import {
   sortRows,
   metricList,
   buildSeries,
+  currentDatasets,
 } from "../frontend/src/data.js";
 import { numeric } from "../frontend/src/utils.js";
 
@@ -114,4 +115,84 @@ test("empty/header-only/malformed CSV reports actionable errors", () => {
   assert.throws(() => parseCSV(""), /为空/);
   assert.throws(() => parseCSV("epoch,score"), /至少一行数据/);
   assert.throws(() => parseCSV('epoch,score\n1,"unclosed'), /引号/);
+});
+
+test("switching folders scopes curves and metrics without losing saved file preferences", () => {
+  const datasets = [
+    {
+      ...parseCSV("epoch,score,only_a\n1,0.2,5\n2,0.8,6", "a.csv"),
+      id: "a",
+      folderId: "folder-a",
+    },
+    {
+      ...parseCSV("epoch,score,only_b\n1,0.5,8", "b.csv"),
+      id: "b",
+      folderId: "folder-b",
+    },
+    {
+      ...parseCSV("epoch,score\n1,0.9", "hidden.csv"),
+      id: "hidden",
+      folderId: "folder-b",
+      enabled: false,
+    },
+  ];
+  const state = {
+    datasets,
+    activeFolderId: "folder-a",
+    selected: new Set(["score", "only_a", "only_b"]),
+    seriesPrefs: {
+      "a:c1": { visible: true, extreme: "max", color: "#3563e9" },
+    },
+    nextColor: 1,
+  };
+  const before = buildSeries(state);
+  assert.deepEqual(
+    before.map((series) => series.dataset.id),
+    ["a", "a"],
+  );
+  assert.deepEqual(
+    before.map((series) => series.name),
+    ["score", "only_a"],
+  );
+  state.activeFolderId = "folder-b";
+  assert.deepEqual(
+    buildSeries(state).map((series) => series.dataset.id),
+    ["b", "b"],
+  );
+  assert.deepEqual(
+    metricList(currentDatasets(state)).map((metric) => metric.label),
+    ["score", "only_b"],
+  );
+  assert.equal(datasets[0].enabled, true);
+  assert.equal(datasets[2].enabled, false);
+  state.activeFolderId = "folder-a";
+  const restored = buildSeries(state);
+  assert.equal(restored[0].extreme, "max");
+  assert.deepEqual(
+    restored.map((series) => series.id),
+    before.map((series) => series.id),
+  );
+});
+
+test("empty or deleted folders show no curves, including demos from a different folder", () => {
+  const state = {
+    datasets: [
+      {
+        ...parseCSV("epoch,score\n1,0.9"),
+        id: "demo0",
+        demo: true,
+        folderId: "demo-folder",
+      },
+    ],
+    activeFolderId: "empty-folder",
+    selected: new Set(["score"]),
+    seriesPrefs: {},
+    nextColor: 0,
+  };
+  assert.deepEqual(currentDatasets(state), []);
+  assert.deepEqual(buildSeries(state), []);
+  state.activeFolderId = "demo-folder";
+  assert.equal(buildSeries(state).length, 1);
+  state.activeFolderId = "";
+  assert.deepEqual(buildSeries(state), []);
 });

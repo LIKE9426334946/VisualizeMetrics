@@ -59,10 +59,17 @@ export function metricList(datasets) {
   return [...found.values()];
 }
 
+export function currentDatasets(state) {
+  return state.datasets.filter(
+    (dataset) => dataset.folderId === state.activeFolderId,
+  );
+}
+
 export function buildSeries(state) {
   const result = [];
-  const multi = state.datasets.length > 1;
-  for (const dataset of state.datasets) {
+  const datasets = currentDatasets(state);
+  const multi = datasets.length > 1;
+  for (const dataset of datasets) {
     if (!dataset.enabled) continue;
     for (const column of dataset.columns) {
       if (

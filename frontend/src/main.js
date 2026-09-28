@@ -6,7 +6,7 @@ import {
   baseName,
   palette,
 } from "./utils.js";
-import { metricList, buildSeries, sortRows } from "./data.js";
+import { currentDatasets, metricList, buildSeries, sortRows } from "./data.js";
 import { demoDatasets } from "./demo.js";
 import { createChart } from "./chart.js";
 import { exportChart } from "./export.js";
@@ -89,12 +89,15 @@ function workspaceSnapshot() {
     schema: 1,
     mode: state.mode,
     activeFolderId: state.activeFolderId,
-    datasets: state.datasets.map(({ id, name, enabled, xColumn }) => ({
-      id,
-      name,
-      enabled,
-      xColumn,
-    })),
+    datasets: state.datasets.map(
+      ({ id, name, enabled, xColumn, folderId }) => ({
+        id,
+        name,
+        enabled,
+        xColumn,
+        folderId,
+      }),
+    ),
     selected: [...state.selected],
     seriesPrefs: state.seriesPrefs,
     nextColor: state.nextColor,
@@ -157,7 +160,8 @@ function renderFiles() {
   const files = state.files.filter(
     (file) => file.folderId === state.activeFolderId,
   );
-  const demos = state.datasets.filter((dataset) => dataset.demo);
+  const datasets = currentDatasets(state);
+  const demos = datasets.filter((dataset) => dataset.demo);
   $("#file-count").textContent = String(files.length).padStart(2, "0");
   $("#current-folder").textContent = folder
     ? `${folder.name} · ${files.length} 个已保存文件`
@@ -184,7 +188,7 @@ function renderFiles() {
       ? '<p class="empty-help">当前目录暂无 CSV，上传后会保存到服务器。</p>'
       : "");
   $("#workspace-count").textContent =
-    `${state.datasets.filter((dataset) => dataset.enabled).length} 个显示中的实验 · ${state.files.length} 个已保存文件`;
+    `${datasets.filter((dataset) => dataset.enabled).length} 个当前实验 · ${files.length} 个目录文件`;
   $("#demo-badge").hidden = !demos.length;
   $("#demo-badge").textContent = "模拟示例 · 非真实训练结果";
   $("#load-demo").hidden = state.datasets.length > 0;
@@ -192,9 +196,10 @@ function renderFiles() {
 }
 
 function renderMetrics() {
-  const metrics = metricList(state.datasets);
+  const metrics = metricList(currentDatasets(state));
   $("#metric-count").textContent = `${metrics.length} 项`;
-  $("#selected-count").textContent = `已选 ${state.selected.size}`;
+  $("#selected-count").textContent =
+    `已选 ${metrics.filter((metric) => state.selected.has(metric.label)).length}`;
   $("#metric-list").innerHTML = metrics.length
     ? metrics
         .map(
@@ -260,7 +265,7 @@ function renderStats() {
 function renderNotices() {
   const messages = [
     ...state.notices,
-    ...state.datasets.flatMap((dataset) =>
+    ...currentDatasets(state).flatMap((dataset) =>
       dataset.warnings.map((warning) => ({
         type: "info",
         message: `${dataset.filename}：${warning}`,
@@ -276,16 +281,17 @@ function renderNotices() {
 }
 
 function renderTable() {
-  if (!state.datasets.some((dataset) => dataset.id === state.tableId))
-    state.tableId = state.datasets[0]?.id ?? "";
-  $("#table-dataset").innerHTML = state.datasets.length
+  const datasets = currentDatasets(state);
+  if (!datasets.some((dataset) => dataset.id === state.tableId))
+    state.tableId = datasets[0]?.id ?? "";
+  $("#table-dataset").innerHTML = datasets.length
     ? options(
-        state.datasets.map((dataset) => [dataset.id, dataset.filename]),
+        datasets.map((dataset) => [dataset.id, dataset.filename]),
         state.tableId,
       )
     : "<option>尚无 CSV 文件</option>";
-  $("#table-dataset").disabled = !state.datasets.length;
-  const dataset = state.datasets.find((item) => item.id === state.tableId);
+  $("#table-dataset").disabled = !datasets.length;
+  const dataset = datasets.find((item) => item.id === state.tableId);
   const columns = dataset?.columns ?? [];
   const rows = dataset
     ? sortRows(
@@ -344,9 +350,24 @@ function renderAll(resetZoom = false) {
   summary.refresh();
 }
 
+function switchFolder(folderId) {
+  if (folderId === state.activeFolderId) return;
+  state.activeFolderId = folderId;
+  state.statsId = "";
+  state.tableId = "";
+  state.sortColumn = null;
+  state.page = 0;
+  state.tableQuery = "";
+  $("#table-search").value = "";
+  renderAll(true);
+}
+
 function loadDemo() {
   state.mode = "demo";
-  state.datasets = demoDatasets();
+  state.datasets = demoDatasets().map((dataset) => ({
+    ...dataset,
+    folderId: state.activeFolderId,
+  }));
   state.selected = new Set(["val_iou"]);
   state.seriesPrefs = {};
   state.nextColor = 0;
@@ -385,6 +406,12 @@ function readFile(file) {
 
 function addDatasets(added) {
   if (!added.length) return;
+  const firstInFolder = added.filter(
+    (dataset) =>
+      !state.datasets.some(
+        (existing) => !existing.demo && existing.folderId === dataset.folderId,
+      ),
+  );
   const replacing = !state.datasets.length || state.mode === "demo";
   if (replacing) {
     state.datasets = [];
@@ -397,12 +424,9 @@ function addDatasets(added) {
   }
   state.mode = "files";
   state.datasets.push(...added);
+  for (const metric of metricList(firstInFolder).slice(0, 2))
+    state.selected.add(metric.label);
   if (replacing) {
-    state.selected = new Set(
-      metricList(state.datasets)
-        .slice(0, 2)
-        .map((metric) => metric.label),
-    );
     state.settings.title = baseName(added[0].filename);
     state.settings.yLabel = "Value";
     state.settings.xLabel = "Epoch";
@@ -488,6 +512,7 @@ async function initialize() {
       const demos = value.mode === "demo" ? demoDatasets() : [];
       for (const view of value.datasets) {
         let dataset = demos.find((item) => item.id === view.id);
+        if (dataset) dataset.folderId = view.folderId ?? state.activeFolderId;
         if (!dataset) {
           const metadata = state.files.find((file) => file.id === view.id);
           if (!metadata) continue;
@@ -559,10 +584,7 @@ document.addEventListener("click", async (event) => {
   if (!target) return;
   if (target.classList.contains("upload-trigger")) $("#file-input").click();
   if (target.dataset.folder) {
-    state.activeFolderId = target.dataset.folder;
-    renderFolders();
-    renderFiles();
-    summary.refresh();
+    switchFolder(target.dataset.folder);
   }
   if (target.dataset.deleteFolder) {
     if (state.busy) {
@@ -588,8 +610,8 @@ document.addEventListener("click", async (event) => {
       state.folders = state.folders.filter((item) => item.id !== folder.id);
       delete state.summaryConfigs[folder.id];
       if (state.activeFolderId === folder.id)
-        state.activeFolderId = state.folders[0]?.id ?? "";
-      renderAll(true);
+        switchFolder(state.folders[0]?.id ?? "");
+      else renderAll();
       await persistence.flush();
       toast("目录及其中的 CSV 文件已删除。");
     } catch (error) {
@@ -733,14 +755,14 @@ $("#file-input").addEventListener("change", (event) =>
   importFiles([...event.target.files]),
 );
 $("#select-all").addEventListener("click", () => {
-  state.selected = new Set(
-    metricList(state.datasets).map((metric) => metric.label),
-  );
+  for (const metric of metricList(currentDatasets(state)))
+    state.selected.add(metric.label);
   renderMetrics();
   refreshSeries();
 });
 $("#select-none").addEventListener("click", () => {
-  state.selected.clear();
+  for (const metric of metricList(currentDatasets(state)))
+    state.selected.delete(metric.label);
   renderMetrics();
   refreshSeries();
 });
@@ -873,11 +895,8 @@ $("#folder-form").addEventListener("submit", async (event) => {
       name: $("#folder-name").value,
     });
     state.folders.push(folder);
-    state.activeFolderId = folder.id;
     $("#folder-dialog").close();
-    renderFolders();
-    renderFiles();
-    summary.refresh();
+    switchFolder(folder.id);
     await persistence.flush();
     toast("目录已创建。");
   } catch (error) {

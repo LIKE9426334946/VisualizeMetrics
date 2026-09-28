@@ -287,7 +287,10 @@ export function createChart(element, onLegend, onViewChange = () => {}) {
     onViewChange();
   });
   const update = (settings, series, reset = false) => {
-    if (reset) zoom = [0, 100];
+    if (reset) {
+      zoom = [0, 100];
+      legendScroll = 0;
+    }
     currentSettings = settings;
     currentSeries = series;
     const option = makeOptions(settings, series, {
