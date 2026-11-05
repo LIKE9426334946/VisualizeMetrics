@@ -318,6 +318,25 @@ h2 {
   border-radius: 12px;
   overflow: hidden;
 }
+@media (width > 700px) {
+  .sidebar {
+    /* Only the chart and statistics set the grid row's height. */
+    contain: size;
+    align-self: stretch;
+    min-height: 0;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+  .sidebar #folder-list,
+  .sidebar .metric-list {
+    max-height: none;
+    overflow: visible;
+  }
+}
 .sidebar-section {
   padding: 19px 19px 17px;
 }
@@ -1387,6 +1406,8 @@ dialog::backdrop {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
+    max-height: 300px;
+    overflow-y: auto;
   }
   .series-row + .series-row {
     margin-top: 0;
